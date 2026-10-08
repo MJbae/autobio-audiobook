@@ -1,0 +1,17 @@
+name: ToldLife
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', '.github/workflows/toldlife.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  deploy:
+    uses: MJbae/duvridge/.github/workflows/toldlife.yml@main
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
