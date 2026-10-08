@@ -1,6 +1,10 @@
 """녹음 클립을 이어 붙여 회차별 MP3·MP4·SRT 를 만든다.
 
-usage: python3 -I assemble.py scripts/ep01.json [--tempo 0.9]
+속도를 둘로 나눠 만든다(사용자 결정, 2026-10-08).
+- 웹 사이트용: 보통 배속(1.0) → out/<회차>.mp3 · .srt
+- 통합 영상용: 0.9배속      → out/video/<회차>.mp4 · .srt
+
+usage: python3 -I assemble.py scripts/ep01.json [--audio-tempo 1.0] [--video-tempo 0.9]
 """
 import argparse
 import json
@@ -36,7 +40,9 @@ def decode(path, af=None):
 
 def load_clip(path, tempo):
     trim = "silenceremove=start_periods=1:start_threshold=-45dB"
-    af = f"{trim},areverse,{trim},areverse,atempo={tempo}"
+    af = f"{trim},areverse,{trim},areverse"
+    if tempo != 1.0:
+        af += f",atempo={tempo}"
     return decode(path, af)
 
 
@@ -140,28 +146,43 @@ def write_srt(scenes, path):
     path.write_text("\n".join(rows), encoding="utf-8")
 
 
-def encode(eid, audio, scenes, total):
-    out = ROOT / "out"
-    work = ROOT / "work" / eid
-    (work / "frames").mkdir(parents=True, exist_ok=True)
-    out.mkdir(exist_ok=True)
-    wav = work / "mix.wav"
+def normalize(audio, work, name):
+    """믹스를 -16 LUFS 로 맞춘 WAV 경로를 돌려준다."""
+    work.mkdir(parents=True, exist_ok=True)
+    wav = work / f"{name}_mix.wav"
     pcm = (np.clip(audio, -1, 1) * 32767).astype("<i2")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "s16le", "-ar", str(SR), "-ac", "2", "-i", "-", str(wav)],
                    input=pcm.tobytes(), check=True)
-    norm = work / "norm.wav"
+    norm = work / f"{name}_norm.wav"
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-af",
                     "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", str(SR), str(norm)], check=True)
+    return norm
+
+
+def full_scenes(scenes, total):
+    """길이 0 화면을 빼고, 마지막 화면을 음악 끝까지 늘린다."""
+    scenes = [s for s in scenes if s[1] > s[0]]
+    return scenes[:-1] + [(scenes[-1][0], total, *scenes[-1][2:])]
+
+
+def encode_audio(eid, audio, scenes, total, out):
+    norm = normalize(audio, ROOT / "work" / eid, "audio")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(norm), "-c:a", "libmp3lame", "-b:a", "160k",
                     str(out / f"{eid}.mp3")], check=True)
-    concat = work / "frames.txt"
+    write_srt(full_scenes(scenes, total), out / f"{eid}.srt")
+
+
+def encode_video(eid, audio, scenes, total, out):
+    work = ROOT / "work" / eid
+    (work / "frames").mkdir(parents=True, exist_ok=True)
+    norm = normalize(audio, work, "video")
+    scenes = full_scenes(scenes, total)
     rows = []
-    scenes = [s for s in scenes if s[1] > s[0]]
-    scenes[-1] = (scenes[-1][0], total, *scenes[-1][2:])
     for t0, t1, image, mode, payload in scenes:
         png = frames.render(work / "frames", image_path(image), mode, payload)
         rows.append(f"file '{png}'\nduration {t1 - t0:.3f}")
     rows.append(f"file '{png}'")
+    concat = work / "frames.txt"
     concat.write_text("\n".join(rows))
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(concat), "-i", str(norm),
                     "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-tune", "stillimage", "-crf", "20",
@@ -170,18 +191,32 @@ def encode(eid, audio, scenes, total):
     write_srt(scenes, out / f"{eid}.srt")
 
 
+def render(eid, lines, tempo, music):
+    """한 가지 속도로 타임라인과 믹스를 만든다. (믹스, 화면 목록, 전체 길이)"""
+    pieces, scenes, speech_end = build_timeline(lines, eid, tempo)
+    audio = mix(pieces, speech_end, music)
+    return audio, scenes, len(audio) / SR
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("script")
-    ap.add_argument("--tempo", type=float, default=0.9)
+    ap.add_argument("--audio-tempo", type=float, default=1.0, help="웹 사이트용 MP3 속도")
+    ap.add_argument("--video-tempo", type=float, default=0.9, help="통합 영상용 MP4 속도")
     a = ap.parse_args()
     eid = Path(a.script).stem
     lines = json.loads(Path(a.script).read_text(encoding="utf-8"))
-    pieces, scenes, speech_end = build_timeline(lines, eid, a.tempo)
-    audio = mix(pieces, speech_end, SITE / "site/public/music" / f"{eid}.mp3")
-    total = len(audio) / SR
-    encode(eid, audio, scenes, total)
-    print(f"[{eid}] {total / 60:.1f}분 → out/{eid}.mp3 · .mp4 · .srt")
+    music = SITE / "site/public/music" / f"{eid}.mp3"
+    out, video_out = ROOT / "out", ROOT / "out" / "video"
+    video_out.mkdir(parents=True, exist_ok=True)
+
+    audio, scenes, total = render(eid, lines, a.audio_tempo, music)
+    encode_audio(eid, audio, scenes, total, out)
+    print(f"[{eid}] {a.audio_tempo:g}배 {total / 60:.1f}분 → out/{eid}.mp3 · .srt (웹)")
+
+    audio, scenes, total = render(eid, lines, a.video_tempo, music)
+    encode_video(eid, audio, scenes, total, video_out)
+    print(f"[{eid}] {a.video_tempo:g}배 {total / 60:.1f}분 → out/video/{eid}.mp4 · .srt (영상)")
 
 
 if __name__ == "__main__":

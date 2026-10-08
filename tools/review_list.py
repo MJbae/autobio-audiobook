@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def srt_start(eid, text):
-    """그 줄의 첫 문장이 자막에 처음 나오는 시각(mm:ss)."""
-    srt = ROOT / "out" / f"{eid}.srt"
+    """그 줄의 첫 문장이 영상(0.9배) 자막에 처음 나오는 시각(mm:ss)."""
+    srt = ROOT / "out" / "video" / f"{eid}.srt"
     if not srt.exists():
         return "--:--"
     head = text.split(".")[0][:12]
