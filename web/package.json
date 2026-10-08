@@ -16,7 +16,7 @@
     "preview": "vitepress preview site --host 127.0.0.1",
     "typecheck": "vue-tsc --noEmit",
     "pretest": "npm run prepare:content",
-    "test": "node --test tests/content.test.mjs tests/narration.test.mjs",
+    "test": "node --test tests/content.test.mjs tests/narration.test.mjs tests/player.test.mjs",
     "test:sharing": "node --test tests/sharing.test.mjs",
     "assets:share": "node scripts/generate-share-assets.mjs",
     "assets:cover": "node scripts/generate-home-cover.mjs",

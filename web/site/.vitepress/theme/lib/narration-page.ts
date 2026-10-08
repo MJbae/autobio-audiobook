@@ -8,11 +8,11 @@ export function cueElements(index: number, kind?: CueKind): Element[] {
   return selector ? [...document.querySelectorAll(selector)] : []
 }
 
-/** The part of the screen between the sticky toolbar and the listening controls. */
+/** The part of the screen between the sticky toolbar and the player bar. */
 export function readingBand() {
   const top = document.querySelector('.reader-toolbar')?.getBoundingClientRect().bottom ?? 0
-  const dock = document.querySelector('.narration-dock')?.getBoundingClientRect().top ?? window.innerHeight
-  return { top, bottom: Math.min(window.innerHeight, dock) }
+  const bar = document.querySelector('.player-bar')?.getBoundingClientRect().top ?? window.innerHeight
+  return { top, bottom: Math.min(window.innerHeight, bar) }
 }
 
 /** -1 when the elements sit above the reading band, 1 below it, 0 while in view. */
@@ -41,17 +41,6 @@ export function bringIntoView(elements: readonly Element[], force = false) {
 
 export function showElement(element: Element | null) {
   element?.scrollIntoView({ block: 'center', behavior: smooth() })
-}
-
-/** The sentence at the top of the screen, or null while the episode header is still in view. */
-export function firstVisibleCue(): number | null {
-  const band = readingBand()
-  const header = document.querySelector('.article-header')?.getBoundingClientRect()
-  if (header && header.bottom > band.top) return null
-  for (const element of document.querySelectorAll('.story-content .cue')) {
-    if (element.getBoundingClientRect().bottom > band.top + 8) return Number(element.getAttribute('data-cue'))
-  }
-  return null
 }
 
 export function setMark(elements: readonly Element[], name: string, on: boolean) {

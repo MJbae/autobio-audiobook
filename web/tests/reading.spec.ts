@@ -4,7 +4,9 @@ import rawCatalog from '../site/.vitepress/generated/catalog.json' with { type: 
 import type { Illustration } from '../site/.vitepress/markdown/episode-illustrations'
 async function noOverflow(page: Page) { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true) }
 
-test('작품 홈의 26편 목록과 처음부터 읽기에서 원고를 읽는다', async ({ page }, info) => {
+const player = (page: Page) => page.getByRole('region', { name: '오디오북 플레이어' })
+
+test('작품 홈은 26편 목록과 아래 플레이어로 시작하고 회차를 누르면 원고를 연다', async ({ page }, info) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await page.goto('./')
   await expect(page.getByRole('heading', { name: '내 논을 파는 한이 있어도', exact: true })).toBeVisible()
@@ -25,44 +27,32 @@ test('작품 홈의 26편 목록과 처음부터 읽기에서 원고를 읽는�
   await expect(page.locator('.part-heading')).toHaveCount(6)
   await expect(page.getByRole('navigation', { name: '부별 바로가기' })).toHaveCount(0)
   expect(await page.locator('.work-synopsis p').allTextContents()).toEqual(rawCatalog.work.synopsis)
-  await expect(page.locator('.resume-link')).toHaveText('처음부터 읽기')
+  await expect(page.locator('.resume-link')).toHaveCount(0)
   await expect(page.getByRole('link', { name: '한 번에 읽기', exact: true })).toHaveCount(0)
   const synopsis = (await page.locator('.work-synopsis').boundingBox())!
-  const action = (await page.locator('.resume-link').boundingBox())!
   const chapters = (await page.locator('.chapter-list').boundingBox())!
-  expect(action.y).toBeGreaterThanOrEqual(synopsis.y + synopsis.height)
-  expect(chapters.y).toBeGreaterThanOrEqual(action.y + action.height)
-  expect(action.y - synopsis.y - synopsis.height).toBeLessThanOrEqual(32)
-  expect(chapters.y - action.y - action.height).toBeLessThanOrEqual(40)
-  expect(Math.abs(action.width - synopsis.width)).toBeLessThan(1)
-  expect(action.height).toBe(56)
-  const homeButtonStyle = await page.locator('.resume-link').evaluate(element => {
-    const style = getComputedStyle(element)
-    return { background: style.backgroundColor, radius: style.borderRadius, height: style.height }
-  })
+  expect(chapters.y).toBeGreaterThanOrEqual(synopsis.y + synopsis.height)
+  await expect(player(page)).toContainText('프롤로그 벼 한 톨의 무게')
+  await expect(player(page).locator('.player-action')).toHaveText('듣기')
   await noOverflow(page)
   await page.screenshot({ path: `test-results/reading/${info.project.name}-home.png`, fullPage: true })
-  await page.locator('.resume-link').click()
+  await page.locator('#episode-prolog').click()
   await expect(page).toHaveURL(/read\/prolog\.html$/)
   await expect(page.locator('.article-header h1')).toHaveText('벼 한 톨의 무게')
   await expect(page.locator('.story-content')).toContainText('내 논을 파는 한이 있어도')
-  await expect(page.locator('.reader-toolbar a, .reader-toolbar button')).toHaveCount(3)
+  await expect(page.locator('.reader-toolbar a, .reader-toolbar button')).toHaveCount(2)
   await expect(page.locator('#comments, #reactions')).toHaveCount(0)
-  expect(await page.locator('.next-episode').evaluate(element => {
-    const style = getComputedStyle(element)
-    return { background: style.backgroundColor, radius: style.borderRadius, height: style.height }
-  })).toEqual(homeButtonStyle)
   await noOverflow(page)
   expect(errors).toEqual([])
 })
 
-test('다음 화·읽음·읽던 화를 연결하고 목록의 해당 줄로 돌아간다', async ({ page }) => {
+test('회차 끝 한 줄로 이전·다음 화를 잇고 목록의 해당 줄로 돌아간다', async ({ page }) => {
   await page.goto('read/prolog.html')
   await expect(page.locator('.previous-episode')).toHaveCount(0)
   await expect(page.locator('.episode-navigation')).toHaveCount(1)
-  await expect(page.locator('.next-episode .reading-link-label')).toHaveText('다음 화')
-  await expect(page.locator('.next-episode')).toHaveAccessibleName('다음 화 읽기')
-  await expect(page.locator('.next-episode-title, .previous-episode-title')).toHaveCount(0)
+  await expect(page.locator('.episode-position')).toHaveText('프롤로그')
+  await expect(page.locator('.next-episode')).toHaveText('다음 화')
+  await expect(page.locator('.next-episode')).toHaveAccessibleName('다음 화')
   await page.locator('.next-episode').scrollIntoViewIfNeeded()
   await page.locator('.next-episode').click()
   await expect(page).toHaveURL(/read\/ep01\.html$/)
@@ -71,24 +61,15 @@ test('다음 화·읽음·읽던 화를 연결하고 목록의 해당 줄로 돌
   await expect(page.locator('.previous-episode')).toHaveCount(1)
   await expect(page.locator('.previous-episode')).toHaveAttribute('href', '/bae-memoir/read/prolog.html')
   await expect(page.locator('.episode-end').getByRole('link', { name: '목록', exact: true })).toHaveCount(0)
-  await page.locator('.next-episode').scrollIntoViewIfNeeded()
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('family-library:completed') || '[]'))).toContain('ep01')
-  await page.locator('.back-link').click()
+  const back = (await page.locator('.back-link').boundingBox())!
+  await page.mouse.click(back.x + back.width / 2, back.y + back.height / 2)
   await expect(page).toHaveURL(/#episode-ep01$/)
-  await expect(page.locator('#episode-ep01')).toContainText('최근 본 화')
-  await expect(page.locator('#episode-ep01 .chapter-node')).toHaveClass(/node-read/)
-  await expect(page.locator('#episode-ep01').getByRole('img', { name: '읽은 회차' })).toBeVisible()
-  await expect(page.locator('#episode-ep01')).not.toContainText('읽음')
-  await expect(page.locator('.resume-link')).toContainText('다음 화 읽기')
-  await expect(page.locator('.resume-link .reading-link-label')).toHaveText('다음 화 읽기')
-  await expect(page.locator('.resume-link .reading-link-subtitle')).toHaveText('2화 책보 대신 지게')
-  expect((await page.locator('.resume-link').boundingBox())!.height).toBeGreaterThanOrEqual(72)
+  // Moving on to an episode plays it, so the list shows it as the one being heard.
+  await expect(page.locator('#episode-ep01')).toContainText('재생 중')
   await noOverflow(page)
-  await page.locator('.resume-link').click()
-  await expect(page).toHaveURL(/read\/ep02\.html$/)
 })
 
-test('긴 회차 제목과 모든 글자 크기에서도 이전·다음 버튼은 한 줄 문구와 56px 높이를 유지한다', async ({ page }, info) => {
+test('모든 글자 크기에서도 회차 이동 한 줄은 넘치지 않고 누르기 쉽다', async ({ page }, info) => {
   // This episode's next title caused the old button to reach four title lines at 320px.
   await page.goto('read/ep08.html')
   // Continuing episodes have no end mark; ⁂ remains reserved for scene breaks.
@@ -102,24 +83,16 @@ test('긴 회차 제목과 모든 글자 크기에서도 이전·다음 버튼�
     const next = page.locator('.next-episode')
     await expect(previous).toHaveText('이전 화')
     await expect(next).toHaveText('다음 화')
-    await expect(previous).toHaveAccessibleName('이전 화 읽기')
-    await expect(next).toHaveAccessibleName('다음 화 읽기')
+    await expect(page.locator('.episode-position')).toHaveText('8화')
     await previous.scrollIntoViewIfNeeded()
     const left = (await previous.boundingBox())!, right = (await next.boundingBox())!
     expect(Math.abs(left.y - right.y)).toBeLessThan(1)
-    expect(Math.abs(left.height - right.height)).toBeLessThan(1)
-    expect(Math.abs(left.width - right.width)).toBeLessThan(1)
-    expect(left.height).toBe(56)
-    expect(right.height).toBe(56)
+    expect(left.height).toBeGreaterThanOrEqual(48)
+    expect(right.height).toBeGreaterThanOrEqual(48)
     expect(left.x + left.width).toBeLessThan(right.x)
-    expect(await previous.evaluate(element => getComputedStyle(element).backgroundColor))
-      .not.toBe(await next.evaluate(element => getComputedStyle(element).backgroundColor))
-    for (const button of [previous, next]) {
-      expect(await button.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-      expect(await button.locator('span').evaluate(element => {
-        const box = element.getBoundingClientRect()
-        return box.height <= parseFloat(getComputedStyle(element).lineHeight) + 1
-      })).toBe(true)
+    for (const link of [previous, next]) {
+      expect(await link.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+      expect(await link.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     }
     await noOverflow(page)
   }
@@ -128,10 +101,10 @@ test('긴 회차 제목과 모든 글자 크기에서도 이전·다음 버튼�
   await expect(page).toHaveURL(/read\/ep07\.html$/)
   await page.goto('read/prolog.html')
   await expect(page.locator('.previous-episode')).toHaveCount(0)
-  await expect(page.locator('.next-episode')).toHaveCSS('height', '56px')
+  expect((await page.locator('.next-episode').boundingBox())!.height).toBeGreaterThanOrEqual(48)
 })
 
-test('읽던 위치와 네 단계 글자 크기를 기억한다', async ({ page }) => {
+test('네 단계 글자 크기를 기억한다', async ({ page }) => {
   await page.goto('read/ep01.html')
   await page.getByRole('button', { name: '설정', exact: true }).click()
   const settings = page.getByRole('dialog')
@@ -141,85 +114,44 @@ test('읽던 위치와 네 단계 글자 크기를 기억한다', async ({ page 
   await expect(page.locator('.library')).toHaveClass(/font-3/)
   await expect(page.locator('.story-content p').first()).toHaveCSS('font-size', '26px')
   await expect(page.locator('.reader-actions .settings-button')).toHaveCSS('font-size', '18px')
-  await page.evaluate(() => window.scrollTo({ top: 260, behavior: 'instant' }))
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('family-library:reading') || '{}').scroll)).toBeGreaterThan(200)
-  const back = await page.locator('.back-link').boundingBox()
-  // Click the visible sticky toolbar: Playwright's automatic scrollIntoView can move it to document top.
-  await page.mouse.click(back!.x + back!.width / 2, back!.y + back!.height / 2)
-  await expect(page.locator('.resume-link')).toContainText('이어서 읽기')
-  await expect(page.locator('.resume-link .reading-link-subtitle')).toHaveText('1화 어머니의 쇠갈고리')
-  await expect(page.locator('.resume-link .reading-link-subtitle')).toHaveCSS('font-size', '16px')
-  await page.locator('.resume-link').click()
-  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(200)
   await noOverflow(page)
 })
 
-test('옛 연대 읽기 기록을 새 회차의 제목과 주소로 읽는다', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('family-library:reading', JSON.stringify({ id: 'life-1980s', title: '옛 제목', url: '/read/1980s.html', scroll: 1800 })))
-  await page.goto('./')
-  await expect(page.locator('.resume-link .reading-link-label')).toHaveText('이어서 읽기')
-  await expect(page.locator('.resume-link .reading-link-subtitle')).toHaveText('12화 망해가는 정미소를 사다')
-  await expect(page.locator('#episode-ep12')).toHaveAttribute('aria-current', 'location')
-  await expect(page.locator('.resume-link')).toHaveAttribute('href', '/bae-memoir/read/ep12.html')
-  await page.locator('.resume-link').click()
-  await expect(page.locator('.article-header h1')).toHaveText('망해가는 정미소를 사다')
-})
-
-test('끝까지 읽은 옛 연대 기록은 목차에서도 읽은 회차로 표시한다', async ({ page }) => {
-  // The finished flag is preserved even when no completed list was saved.
-  await page.addInitScript(() => localStorage.setItem('family-library:reading', JSON.stringify({ id: 'life-1980s', title: '옛 제목', url: '/read/1980s.html', scroll: 1800, finished: true })))
-  await page.goto('./')
-  await expect(page.locator('.resume-link .reading-link-label')).toHaveText('다음 화 읽기')
-  await expect(page.locator('#episode-ep12')).toContainText('최근 본 화')
-  await expect(page.locator('#episode-ep12 .chapter-node')).toHaveClass(/node-read/)
-  await expect(page.locator('.chapter-node.node-current')).toHaveCount(0)
-})
-
-test('옛 제목 ID의 읽기·완독·이어 읽기 기록과 목차 링크를 번호로 바꾸고 읽던 위치를 보존한다', async ({ page }) => {
+test('옛 제목 ID의 재생 완료 기록과 목차 링크를 번호로 바꾼다', async ({ page }) => {
   await page.addInitScript(() => {
-    if (localStorage.getItem('family-library:reading')) return
-    localStorage.setItem('family-library:reading', JSON.stringify({ id: 'ep-josae', title: '어머니의 조새', url: '/bae-memoir/read/josae.html', scroll: 480, finished: false }))
+    if (localStorage.getItem('family-library:completed')?.includes('epilog')) return
     localStorage.setItem('family-library:completed', JSON.stringify(['ep-jige', 'life-epilogue', 'ep02', 'unknown']))
-    localStorage.setItem('family-library:resume', JSON.stringify({ id: 'ep-josae', title: '어머니의 조새', url: '/bae-memoir/read/josae.html', scroll: 480, finished: false }))
-    localStorage.setItem('family-library:music', JSON.stringify({ enabled: false }))
   })
   await page.goto('./#episode-josae')
   await expect(page).toHaveURL(/#episode-ep01$/)
-  await expect(page.locator('#episode-ep01')).toContainText('읽는 중')
-  await expect(page.locator('.resume-link')).toHaveAttribute('href', '/bae-memoir/read/ep01.html')
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('family-library:completed')!))).toEqual(['ep02', 'epilog'])
-  for (const key of ['family-library:reading', 'family-library:resume']) {
-    expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)!), key)).toMatchObject({ id: 'ep01', title: '어머니의 쇠갈고리', url: '/bae-memoir/read/ep01.html', scroll: 480 })
-  }
-  await page.locator('.resume-link').click()
-  await expect(page).toHaveURL(/read\/ep01\.html$/)
-  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(400)
-  expect(await page.evaluate(() => localStorage.getItem('family-library:resume'))).toBeNull()
+  await expect(page.locator('#episode-ep02').getByRole('img', { name: '재생 완료' })).toBeVisible()
 })
 
-for (const [episodeId, oldTitle] of [['ep05', '미꾸라지 칼국수'], ['ep11', '차비 잘 챙겨라']]) {
-  test(`살림 회차 ${episodeId}는 바뀐 제목으로 목차·본문·이어 읽기를 연결한다`, async ({ page }) => {
+test('끝까지 읽은 옛 기록은 완료 목록이 없어도 목차에서 재생 완료로 이어진다', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('family-library:reading', JSON.stringify({ id: 'life-1980s', title: '옛 제목', url: '/read/1980s.html', scroll: 1800, finished: true })))
+  await page.goto('./')
+  await expect(page.locator('#episode-ep12').getByRole('img', { name: '재생 완료' })).toBeVisible()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('family-library:completed')!))).toEqual(['ep12'])
+  // The reading record stays: the web novel on the same site address still uses it.
+  expect(await page.evaluate(() => localStorage.getItem('family-library:reading'))).not.toBeNull()
+})
+
+for (const [episodeId] of [['ep05'], ['ep11']]) {
+  test(`살림 회차 ${episodeId}는 바뀐 제목으로 목차와 본문을 연결한다`, async ({ page }) => {
     const episode = rawCatalog.readingOrder.find(episode => episode.episodeId === episodeId)!
-    await page.addInitScript(({ id, title, url }) => {
-      localStorage.setItem('family-library:reading', JSON.stringify({ id, title, url, scroll: 150, finished: false }))
-      localStorage.setItem('family-library:completed', JSON.stringify([id]))
-      localStorage.setItem('family-library:music', JSON.stringify({ enabled: false }))
-    }, { id: episode.id, title: oldTitle, url: `/bae-memoir${episode.url}` })
+    await page.addInitScript(({ id }) => localStorage.setItem('family-library:completed', JSON.stringify([id])), { id: episode.id })
     await page.goto('./')
     await expect(page).toHaveTitle(rawCatalog.work.title)
     const row = page.locator(`#episode-${episodeId}`)
     await expect(row.locator('.chapter-title')).toHaveText(`${episode.label} ${episode.title}`)
     await expect(row).toHaveAttribute('href', `/bae-memoir${episode.url}`)
-    await expect(row).toHaveAttribute('aria-current', 'location')
     await expect(row.locator('.read-label')).toBeVisible()
-    await expect(page.locator('.resume-link .reading-link-subtitle')).toHaveText(`${episode.label} ${episode.title}`)
-    await expect(page.locator('.resume-link')).toHaveAttribute('href', `/bae-memoir${episode.url}`)
-    await page.locator('.resume-link').click()
+    await row.click()
     await expect(page.locator('.article-header h1')).toHaveText(episode.title)
     await expect(page.locator('.article-time')).toHaveText(episode.time)
     await expect(page).toHaveTitle(`${episode.label} ${episode.title} · ${rawCatalog.work.title}`)
     await expect(page.locator(`[data-illustration="${episodeId}-01"]`)).toBeVisible()
-    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('family-library:reading') || '{}').title)).toBe(episode.title)
     await noOverflow(page)
     await page.locator('.back-link').click()
     await expect(page).toHaveTitle(rawCatalog.work.title)
@@ -287,7 +219,7 @@ test('줄 간격과 서체를 바꾸면 본문에만 적용하고 다시 열어�
   await noOverflow(page)
 })
 
-test('회차 끝은 본문과 넓게 떨어진 구분 표시 뒤에 회차 이동을 한 쌍으로 둔다', async ({ page }) => {
+test('회차 끝은 본문과 넓게 떨어진 구분 표시 뒤에 상자 없는 회차 이동 한 줄을 둔다', async ({ page }) => {
   for (const [url, size, gap] of [['read/ep05.html', '기본', 64], ['read/ep05.html', '아주 크게', 78], ['read/side.html', '기본', 64]] as const) {
     await page.goto(url)
     await page.getByRole('button', { name: '설정', exact: true }).click()
@@ -296,17 +228,17 @@ test('회차 끝은 본문과 넓게 떨어진 구분 표시 뒤에 회차 이�
     const gaps = await page.evaluate(() => {
       const box = (element: Element | null) => element!.getBoundingClientRect()
       const mark = document.querySelector('.story-break, .story-end')
-      const [previous, next] = [...document.querySelectorAll('.episode-navigation a')].map(box)
+      const navigation = document.querySelector('.episode-navigation')!
       return {
         mark: mark!.className,
         story: Math.round(box(mark).top - box([...document.querySelectorAll('.story-content p')].at(-1)!).bottom),
-        navigation: Math.round(box(document.querySelector('.episode-navigation')).top - box(mark).bottom),
-        pair: Math.round(next.left - previous.right),
+        navigation: Math.round(box(navigation).top - box(mark).bottom),
+        lines: [getComputedStyle(navigation).borderTopStyle, getComputedStyle(navigation).borderBottomStyle],
       }
     })
     // Continuing episodes get a quiet break; only the last story says 끝.
-    expect(gaps).toEqual({ mark: url.includes('side') ? 'story-end' : 'story-break', story: gap, navigation: 40, pair: 8 })
-    expect(await page.locator('.previous-episode').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+    expect(gaps).toEqual({ mark: url.includes('side') ? 'story-end' : 'story-break', story: gap, navigation: 40, lines: ['solid', 'solid'] })
+    expect(await page.locator('.next-episode').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
   }
 })
 
@@ -340,7 +272,7 @@ test('23화에서 에필로그·외전·목록까지 이어진다', async ({ pag
   await expect(page.locator('.next-episode-title')).toHaveCount(0)
   await expect(page.locator('.episode-end').getByRole('link', { name: '목록', exact: true })).toHaveCount(0)
   await page.locator('.next-episode').click()
-  await expect(page.locator('.resume-link')).toContainText('아직 읽지 않은 이야기')
+  await expect(player(page)).toContainText('프롤로그 벼 한 톨의 무게')
   await expect(page.getByRole('link', { name: '한 번에 읽기', exact: true })).toHaveCount(0)
   await noOverflow(page)
 })
@@ -479,16 +411,16 @@ test('표지형 홈의 표지와 설정을 표시하고 재방문 소개는 전�
   await page.goto('./')
   await expect(page.locator('.home-cover img')).toBeVisible()
   await expect(page.locator('.home-heading')).not.toContainText('완결')
-  await expect(page.locator('.home-heading .music-toggle')).toHaveCount(0)
   await page.getByRole('button', { name: '설정', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '설정', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '아주 크게', exact: true }).click()
   await expect(page.locator('.library')).toHaveClass(/font-3/)
   await expect(page.locator('.reading-preview, .settings-note')).toHaveCount(0)
-  await page.getByRole('button', { name: '설정 마치기' }).click()
+  await page.getByRole('button', { name: '완료' }).click()
   await noOverflow(page)
-  await page.locator('.resume-link').click()
-  await page.locator('.back-link').click()
+  // Having heard an episode makes the next visit a return visit.
+  await page.evaluate(() => localStorage.setItem('family-library:completed', JSON.stringify(['prolog'])))
+  await page.reload()
   await expect(page.locator('.work-synopsis')).toBeHidden()
   await expect(page.locator('.work-synopsis p')).toHaveCount(rawCatalog.work.synopsis.length)
   for (const paragraph of await page.locator('.work-synopsis p').all()) await expect(paragraph).toBeHidden()
@@ -506,46 +438,27 @@ test('표지형 홈의 표지와 설정을 표시하고 재방문 소개는 전�
   expect(Math.abs(intro.width - chapters.width)).toBeLessThan(1)
 })
 
-test('목차의 읽는 중 회차도 저장 위치로 돌아가고 재독의 진행 상태를 기억한다', async ({ page }) => {
-  await page.goto('read/ep01.html')
-  await page.evaluate(() => window.scrollTo({ top: 900, behavior: 'instant' }))
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('family-library:reading') || '{}').scroll)).toBeGreaterThan(800)
-  const back = (await page.locator('.back-link').boundingBox())!
-  await page.mouse.click(back.x + back.width / 2, back.y + back.height / 2)
-  await expect(page.locator('#episode-ep01')).toContainText('읽는 중')
-  await page.locator('#episode-ep01').click()
-  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(800)
-  await page.evaluate(() => localStorage.setItem('family-library:completed', JSON.stringify(['ep01'])))
-  await page.reload()
-  await page.evaluate(() => window.scrollTo({ top: 400, behavior: 'instant' }))
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('family-library:reading') || '{}').scroll)).toBeGreaterThan(300)
-  const toolbar = (await page.locator('.back-link').boundingBox())!
-  await page.mouse.click(toolbar.x + toolbar.width / 2, toolbar.y + toolbar.height / 2)
-  await expect(page.locator('.resume-link')).toContainText('이어서 읽기')
-  await expect(page.locator('#episode-ep01 .read-label')).toBeVisible()
-})
-
-test('목차 왼쪽 줄은 읽음·읽는 중·안 읽음을 모양으로 구분하고 모두 읽은 부에 다 읽음을 붙인다', async ({ page }, info) => {
-  const read = rawCatalog.readingOrder.slice(0, 12).map(episode => episode.id)
-  await page.addInitScript(({ read }) => {
-    localStorage.setItem('family-library:completed', JSON.stringify(read))
-    localStorage.setItem('family-library:reading', JSON.stringify({ id: 'ep12', title: '망해가는 정미소를 사다', url: '/bae-memoir/read/ep12.html', scroll: 300, finished: false }))
-    localStorage.setItem('family-library:music', JSON.stringify({ enabled: false }))
-  }, { read })
+test('목차 왼쪽 줄은 재생 완료·듣는 중·안 들음을 모양으로 구분하고 모두 들은 부에 재생 완료를 붙인다', async ({ page }, info) => {
+  const heard = rawCatalog.readingOrder.slice(0, 12).map(episode => episode.id).filter(id => id !== 'ep03')
+  await page.addInitScript(({ heard }) => {
+    localStorage.setItem('family-library:completed', JSON.stringify(heard))
+    localStorage.setItem('family-library:narration', JSON.stringify({ id: 'ep03', time: 30 }))
+  }, { heard })
   await page.goto('./')
-  await expect(page.locator('.chapter-node.node-read')).toHaveCount(12)
+  await expect(page.locator('.chapter-node.node-read')).toHaveCount(11)
   await expect(page.locator('.chapter-node.node-current')).toHaveCount(1)
-  await expect(page.locator('.chapter-node.node-unread')).toHaveCount(13)
-  await expect(page.locator('#episode-ep12 .chapter-node')).toHaveClass(/node-current/)
-  await expect(page.locator('#episode-ep12')).toContainText('읽는 중')
-  await expect(page.getByRole('img', { name: '읽은 회차' })).toHaveCount(12)
-  // Screen readers hear the title first and the reading state last, as before the rail.
-  await expect(page.locator('#episode-ep01')).toHaveAccessibleName(/^1화 어머니의 쇠갈고리.*읽은 회차$/)
-  // Every row keeps the same tap cue, whatever its reading state.
-  await expect(page.locator('.chapter-row .chapter-chevron')).toHaveCount(26)
-  await expect(page.locator('.part-done')).toHaveCount(3)
-  await expect(page.locator('.part-heading-block').filter({ has: page.locator('#part-3') })).toContainText('다 읽음')
-  await expect(page.locator('.part-heading-block').filter({ has: page.locator('#part-4') })).not.toContainText('다 읽음')
+  await expect(page.locator('.chapter-node.node-unread')).toHaveCount(14)
+  await expect(page.locator('#episode-ep03 .chapter-node')).toHaveClass(/node-current/)
+  await expect(page.locator('#episode-ep03')).toContainText('분 남음')
+  await expect(page.getByRole('img', { name: '재생 완료' })).toHaveCount(11)
+  // Screen readers hear the title first and the listening state last, as before the rail.
+  await expect(page.locator('#episode-ep01')).toHaveAccessibleName(/^1화 어머니의 쇠갈고리.*재생 완료$/)
+  // Every row keeps a tap cue at its end, whatever its listening state.
+  await expect(page.locator('.chapter-row .chapter-cue')).toHaveCount(26)
+  await expect(page.locator('.part-done')).toHaveCount(2)
+  await expect(page.locator('.part-heading-block').filter({ has: page.locator('#part-3') })).toContainText('재생 완료')
+  await expect(page.locator('.part-heading-block').filter({ has: page.locator('#part-1') })).not.toContainText('재생 완료')
+  await expect(page.locator('.part-heading-block').filter({ has: page.locator('#part-4') })).not.toContainText('재생 완료')
   await expect(page.locator('#episode-ep11')).toHaveClass(/rail-before-done/)
   await expect(page.locator('#episode-ep12')).toHaveClass(/rail-start/)
   await expect(page.locator('#episode-ep13')).not.toHaveClass(/rail-before-done/)
@@ -554,7 +467,7 @@ test('목차 왼쪽 줄은 읽음·읽는 중·안 읽음을 모양으로 구분
   await page.screenshot({ path: `test-results/reading/${info.project.name}-toc-rail.png` })
 })
 
-test('설정은 글자 크기·줄 간격과 서체·화면·배경음악 순서이며 아주 크게에서도 마치기 단추까지 한 화면에 들어간다', async ({ page }, info) => {
+test('설정은 글자 크기·줄 간격과 서체·화면 순서이며 아주 크게에서도 완료 단추까지 한 화면에 들어간다', async ({ page }, info) => {
   await page.goto('read/ep13.html')
   for (const viewport of [page.viewportSize()!, { width: 375, height: 548 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(viewport)
@@ -562,7 +475,8 @@ test('설정은 글자 크기·줄 간격과 서체·화면·배경음악 순서
     const dialog = page.getByRole('dialog', { name: '설정', exact: true })
     await dialog.getByRole('button', { name: '아주 크게', exact: true }).click()
     await expect(page.locator('.library')).toHaveClass(/font-3/)
-    const tops = await dialog.evaluate(element => ['.size-options', '.text-options', '.screen-options', '.music-setting', '.settings-done']
+    await expect(dialog.getByRole('switch', { name: '배경음악' })).toHaveCount(0)
+    const tops = await dialog.evaluate(element => ['.size-options', '.text-options', '.screen-options', '.settings-done']
       .map(selector => element.querySelector(selector)!.getBoundingClientRect().top))
     expect(tops).toEqual([...tops].sort((a, b) => a - b))
     // Line spacing and typeface sit side by side, and every label keeps the same gap to its options.
@@ -573,24 +487,11 @@ test('설정은 글자 크기·줄 간격과 서체·화면·배경음악 순서
     expect(await dialog.locator('.size-sample').evaluateAll(samples => samples.map(sample => getComputedStyle(sample).fontSize)))
       .toEqual(['18px', '20px', '23px', '26px'])
     expect(await dialog.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
-    const done = (await dialog.getByRole('button', { name: '설정 마치기' }).boundingBox())!
+    const done = (await dialog.getByRole('button', { name: '완료' }).boundingBox())!
     expect(done.y + done.height).toBeLessThanOrEqual(viewport.height)
     await noOverflow(page)
     await page.screenshot({ path: `test-results/reading/${info.project.name}-settings-${viewport.width}x${viewport.height}.png` })
-    await dialog.getByRole('button', { name: '설정 마치기' }).click()
+    await dialog.getByRole('button', { name: '완료' }).click()
     await expect(dialog).not.toBeVisible()
   }
-})
-
-test('음악 오류 안내가 붙어도 아주 크게 설정 시트는 마치기 단추까지 한 화면에 들어간다', async ({ page }) => {
-  await page.route('**/music/*.mp3', route => route.abort())
-  await page.goto('read/ep13.html')
-  await page.getByRole('button', { name: '설정', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '설정', exact: true })
-  await dialog.getByRole('button', { name: '아주 크게', exact: true }).click()
-  await expect(dialog.locator('#music-setting-status')).toHaveText('음악을 불러오지 못했어요')
-  await expect(dialog.getByRole('button', { name: '음악 다시 재생' })).toBeVisible()
-  expect(await dialog.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
-  const done = (await dialog.getByRole('button', { name: '설정 마치기' }).boundingBox())!
-  expect(done.y + done.height).toBeLessThanOrEqual(page.viewportSize()!.height)
 })

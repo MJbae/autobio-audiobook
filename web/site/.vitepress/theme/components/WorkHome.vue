@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { useData, withBase } from 'vitepress'
+import { listenState, type ListenState } from '../../shared/player.mjs'
 import { catalog, type Episode } from '../lib/catalog'
+import { followsHere, narrationKey } from '../lib/narration'
 import { portraitAlt } from '../../shared/portrait.mjs'
 import Icon from './Icon.vue'
-import ReadingLink from './ReadingLink.vue'
 import ResponsiveImage from './ResponsiveImage.vue'
 import { coverImageSizes, coverImageSources, imageSrcset } from '../../shared/image-sources.mjs'
 
 type NodeState = 'read' | 'current' | 'unread'
-const props = defineProps<{ lastId: string | null; lastFinished: boolean; completed: string[] }>()
-const emit = defineEmits<{ resume: [] }>()
+const props = defineProps<{ completed: string[] }>()
+const narration = inject(narrationKey)!
+const { state } = narration
 const synopsisOpen = ref(false)
-watch(() => props.lastId, () => { synopsisOpen.value = false })
 const partDescriptions: Record<string, string> = {
   갯벌: '갯벌에서 자란 막내는 전쟁과 풍랑을 겪었다.',
   가마솥: '안면도에서 가정을 꾸리고 김과 멸치를 팔며 탈곡팀을 운영했다.',
@@ -25,6 +26,10 @@ const partDescriptions: Record<string, string> = {
 const { site } = useData()
 const coverSrcset = (format: 'webp' | 'jpg') =>
   imageSrcset(coverImageSources(format), site.value.base)
+
+const total = catalog.readingOrder.length
+const ready = Object.keys(catalog.narration ?? {}).length
+const meta = ready < total ? `${total}편 · 지금 ${ready}편 들을 수 있어요` : `${total}편`
 
 const groups = computed(() => {
   const rows: {
@@ -41,30 +46,29 @@ const groups = computed(() => {
   return rows
 })
 
-const action = computed(() => {
-  const index = catalog.readingOrder.findIndex(e => e.id === props.lastId)
-  if (index < 0) {
-    return { label: '처음부터 읽기', episode: catalog.readingOrder[0], resume: false }
-  }
-  const last = catalog.readingOrder[index]
-  if (!props.lastFinished) {
-    return { label: '이어서 읽기', episode: last, resume: true }
-  }
-  const next = catalog.readingOrder[index + 1]
-  if (next) return { label: '다음 화 읽기', episode: next, resume: false }
-  const unread = catalog.readingOrder.find(e => !props.completed.includes(e.id))
-  return { label: unread ? '아직 읽지 않은 이야기' : '처음부터 다시 읽기', episode: unread || catalog.readingOrder[0], resume: false }
+// The episode being heard, or the one left partway, is the current one in the list.
+const currentId = computed(() => (state.active ? state.episodeId : state.saved?.id ?? null))
+const returning = computed(() => props.completed.length > 0 || currentId.value !== null)
+const states = computed(() => {
+  const session = state.active ? { id: state.episodeId, playing: state.playing, time: state.time } : null
+  return Object.fromEntries(catalog.readingOrder.map(episode => [episode.id, listenState(episode.id, {
+    narration: catalog.narration ?? {}, session, saved: state.saved, completed: props.completed,
+  })])) as Record<string, ListenState>
 })
 
-// A reread keeps its check; the ring marks only an episode being read for the first time.
-// A finished last read counts as read even when a legacy ID kept it out of the completed list.
-function nodeState(id: string): NodeState {
-  if (props.completed.includes(id)) return 'read'
-  if (id !== props.lastId) return 'unread'
-  return props.lastFinished ? 'read' : 'current'
+function listenLabel(status: ListenState) {
+  if (status.kind === 'playing') return '재생 중'
+  if (status.kind === 'unavailable') return '준비 중'
+  return status.kind === 'progress' ? `${status.minutes}분 남음` : `${status.minutes}분`
 }
 
-// The rail is filled between read episodes and up to the one in progress, without a percentage.
+// A replay keeps its check; the ring marks an episode heard partway for the first time.
+function nodeState(id: string): NodeState {
+  if (props.completed.includes(id)) return 'read'
+  return id === currentId.value ? 'current' : 'unread'
+}
+
+// The rail is filled between heard episodes and up to the one in progress, without a percentage.
 function railClasses(episodes: Episode[], index: number) {
   const state = nodeState(episodes[index].id)
   const previous = episodes[index - 1]
@@ -77,7 +81,9 @@ function railClasses(episodes: Episode[], index: number) {
   }
 }
 
-const partRead = (episodes: Episode[]) => episodes.every(episode => props.completed.includes(episode.id))
+const partHeard = (episodes: Episode[]) => episodes.every(episode => props.completed.includes(episode.id))
+/** Opening an episode that has a recording plays it at once; the link then shows its text. */
+function listen(event: MouseEvent, episode: Episode) { if (followsHere(event)) narration.open(episode.id) }
 </script>
 
 <template>
@@ -87,38 +93,31 @@ const partRead = (episodes: Episode[]) => episodes.every(episode => props.comple
         :srcset="coverSrcset('jpg')" :webp-srcset="coverSrcset('webp')" :sizes="coverImageSizes"
         :width="1280" :height="720" :alt="portraitAlt" loading="eager" fetchpriority="high" />
       <header class="home-heading">
-        <div class="home-heading-tools"><p class="home-subtitle">{{ catalog.work.subtitle }}</p><slot name="settings" /></div>
+        <div class="home-heading-tools"><p class="home-subtitle">오디오북 · {{ catalog.work.subtitle }}</p><slot name="settings" /></div>
         <h1>{{ catalog.work.title }}</h1>
+        <p class="home-meta">{{ meta }}</p>
         <p v-if="catalog.work.schedule" class="home-note">{{ catalog.work.schedule }}</p>
       </header>
 
-      <div v-if="lastId" class="synopsis-disclosure">
+      <div v-if="returning" class="synopsis-disclosure">
         <button type="button" class="synopsis-toggle" :aria-expanded="synopsisOpen" aria-controls="work-synopsis" @click="synopsisOpen = !synopsisOpen">
           {{ synopsisOpen ? '작품 소개 접기' : '작품 소개 보기' }}<Icon name="chevron" :size="16" />
         </button>
       </div>
-      <div id="work-synopsis" class="work-synopsis" :hidden="Boolean(lastId) && !synopsisOpen">
+      <div id="work-synopsis" class="work-synopsis" :hidden="returning && !synopsisOpen">
         <p v-for="(paragraph, index) in catalog.work.synopsis" :key="paragraph" :class="{ 'synopsis-quote': index === 0 }">{{ paragraph }}</p>
       </div>
-
-      <ReadingLink
-        class="resume-link"
-        :href="withBase(action.episode.url)"
-        :label="action.label"
-        :subtitle="lastId ? `${action.episode.label} ${action.episode.title}` : undefined"
-        @click="action.resume && emit('resume')"
-      />
     </section>
 
     <nav class="chapter-list" aria-label="회차 목록">
-      <div class="chapter-list-heading"><h2>목차</h2><span>전체 {{ catalog.readingOrder.length }}편</span></div>
+      <div class="chapter-list-heading"><h2>목차</h2><span>전체 {{ total }}편</span></div>
       <section v-for="(group, index) in groups" :key="index">
         <div v-if="group.part" class="part-heading-block">
           <div class="part-heading-row">
             <h2 :id="`part-${group.part.number}`" class="part-heading" tabindex="-1">
               {{ group.part.label }}
             </h2>
-            <span v-if="partRead(group.episodes)" class="part-done"><Icon name="check" :size="15" :stroke="2.4" />다 읽음</span>
+            <span v-if="partHeard(group.episodes)" class="part-done"><Icon name="check" :size="15" :stroke="2.4" />재생 완료</span>
           </div>
           <p v-if="partDescriptions[group.part.title]" class="part-description">
             {{ partDescriptions[group.part.title] }}
@@ -130,12 +129,12 @@ const partRead = (episodes: Episode[]) => episodes.every(episode => props.comple
           :key="episode.id"
           class="chapter-row"
           :class="[
-            { 'is-read': completed.includes(episode.id), 'is-current': episode.id === lastId },
+            { 'is-read': completed.includes(episode.id), 'is-current': episode.id === currentId, 'is-unavailable': states[episode.id].kind === 'unavailable' },
             railClasses(group.episodes, position),
           ]"
           :href="withBase(episode.url)"
-          :aria-current="episode.id === lastId ? 'location' : undefined"
-          @click="episode.id === lastId && !lastFinished && emit('resume')"
+          :aria-current="episode.id === currentId ? 'true' : undefined"
+          @click="listen($event, episode)"
         >
           <span class="chapter-body">
             <span class="chapter-copy">
@@ -144,14 +143,16 @@ const partRead = (episodes: Episode[]) => episodes.every(episode => props.comple
               </span>
               <span class="episode-time">{{ episode.time }}</span>
             </span>
-            <span class="reading-status">
-              <span v-if="episode.id === lastId" class="current-label">{{ lastFinished ? '최근 본 화' : '읽는 중' }}</span>
-              <Icon class="chapter-chevron" name="chevron" :size="16" />
+            <span class="chapter-status" :class="`is-${states[episode.id].kind}`">
+              <Icon v-if="states[episode.id].kind === 'playing'" class="chapter-cue" name="wave" :size="18" :stroke="2" />
+              <span class="chapter-listen">{{ listenLabel(states[episode.id]) }}</span>
+              <Icon v-if="states[episode.id].kind === 'unavailable'" class="chapter-cue chapter-chevron" name="chevron" :size="16" />
+              <span v-else-if="states[episode.id].kind !== 'playing'" class="chapter-cue chapter-play" aria-hidden="true"><Icon name="play" :size="12" filled :stroke="1.6" /></span>
             </span>
           </span>
           <!-- The rail is drawn first but read last, so link names still start with the title. -->
           <span class="chapter-rail">
-            <span v-if="nodeState(episode.id) === 'read'" class="chapter-node node-read read-label" role="img" aria-label="읽은 회차">
+            <span v-if="nodeState(episode.id) === 'read'" class="chapter-node node-read read-label" role="img" aria-label="재생 완료">
               <Icon name="check" :size="14" :stroke="3" />
             </span>
             <span v-else class="chapter-node" :class="`node-${nodeState(episode.id)}`" aria-hidden="true" />

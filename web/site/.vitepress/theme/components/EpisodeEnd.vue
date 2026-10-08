@@ -1,61 +1,45 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 import { isFirebaseConfigured } from '../lib/firebase-config'
-import type { Neighbor } from '../lib/catalog'
-import ReadingLink from './ReadingLink.vue'
+import { catalog, type Neighbor } from '../lib/catalog'
+import { followsHere, narrationKey } from '../lib/narration'
+import Icon from './Icon.vue'
 import ReactionBar from './ReactionBar.vue'
-import NarrationNext from './NarrationNext.vue'
-const props = defineProps<{ pageId: string; prev?: Neighbor | null; next?: Neighbor | null; homeHref: string; episode: boolean }>()
-const emit = defineEmits<{ complete: [] }>()
+const props = defineProps<{ pageId: string; label: string; prev?: Neighbor | null; next?: Neighbor | null; homeHref: string }>()
+const narration = inject(narrationKey)!
 const enabled = isFirebaseConfigured()
 const ready = ref(false)
 const end = ref<HTMLElement>()
-let loadObserver: IntersectionObserver | undefined, readObserver: IntersectionObserver | undefined
+let loadObserver: IntersectionObserver | undefined
 onMounted(() => {
-  if (!end.value) return
-  if (enabled) {
-    loadObserver = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) { ready.value = true; loadObserver?.disconnect() }
-    }, { rootMargin: '350px' })
-    loadObserver.observe(end.value)
-  }
-  if (props.episode) {
-    readObserver = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) { emit('complete'); readObserver?.disconnect() }
-    })
-    readObserver.observe(end.value)
-  }
+  if (!end.value || !enabled) return
+  loadObserver = new IntersectionObserver(([entry]) => {
+    if (entry.isIntersecting) { ready.value = true; loadObserver?.disconnect() }
+  }, { rootMargin: '350px' })
+  loadObserver.observe(end.value)
 })
-onBeforeUnmount(() => { loadObserver?.disconnect(); readObserver?.disconnect() })
+onBeforeUnmount(() => loadObserver?.disconnect())
+/** Moving to another episode plays it straight away, as an audiobook carries on. */
+function listen(event: MouseEvent, neighbor: Neighbor) {
+  if (!followsHere(event)) return
+  const episode = catalog.readingOrder.find(entry => entry.url === neighbor.url)
+  if (episode) narration.open(episode.id)
+}
 </script>
 <template>
   <div ref="end" class="episode-end">
     <p v-if="!next" class="story-end">끝</p>
     <div v-else class="story-break" aria-hidden="true"><span /></div>
-    <section v-if="enabled && episode" id="reactions" class="reactions-anchor" aria-label="이 회차에 반응 남기기">
-      <ClientOnly><ReactionBar v-if="ready" :page-id="pageId" /></ClientOnly>
+    <section v-if="enabled" id="reactions" class="reactions-anchor" aria-label="이 회차에 반응 남기기">
+      <ClientOnly><ReactionBar v-if="ready" :page-id="props.pageId" /></ClientOnly>
     </section>
-    <NarrationNext v-if="episode" :page-id="pageId" />
-    <nav v-if="episode" id="episode-navigation" class="episode-navigation" :class="{ 'has-previous': prev }" aria-label="회차 이동">
-      <ReadingLink
-        v-if="prev"
-        class="previous-episode"
-        :href="withBase(prev.url)"
-        label="이전 화"
-        variant="secondary"
-        direction="back"
-        rel="prev"
-        aria-label="이전 화 읽기"
-      />
-      <ReadingLink
-        class="next-episode"
-        :href="next ? withBase(next.url) : homeHref"
-        :label="next ? '다음 화' : '목차'"
-        :rel="next ? 'next' : undefined"
-        :icon="next ? 'arrow' : 'contents'"
-        :aria-label="next ? '다음 화 읽기' : '전체 회차 보기'"
-      />
+    <nav id="episode-navigation" class="episode-navigation" aria-label="회차 이동">
+      <a v-if="prev" class="previous-episode" :href="withBase(prev.url)" rel="prev" @click="listen($event, prev)"><Icon name="chevron-left" :size="22" />이전 화</a>
+      <span v-else aria-hidden="true" />
+      <span class="episode-position">{{ label }}</span>
+      <a v-if="next" class="next-episode" :href="withBase(next.url)" rel="next" @click="listen($event, next)">다음 화<Icon name="chevron" :size="22" /></a>
+      <a v-else class="next-episode" :href="homeHref" aria-label="전체 회차 보기">목차<Icon name="contents" :size="20" /></a>
     </nav>
   </div>
 </template>

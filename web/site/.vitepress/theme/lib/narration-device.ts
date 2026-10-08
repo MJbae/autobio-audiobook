@@ -1,27 +1,32 @@
 import { withBase } from 'vitepress'
-import { catalog } from './catalog'
+import { catalog, startIllustration } from './catalog'
 
-type Controls = { play(): void; pause(): void; stop(): void; previous(): void; next(): void; seek(time: number): void }
-const actions: MediaSessionAction[] = ['play', 'pause', 'stop', 'previoustrack', 'nexttrack', 'seekto']
+type Controls = { play(): void; pause(): void; stop(): void; back(): void; forward(): void; seek(time: number): void }
+const actions: MediaSessionAction[] = ['play', 'pause', 'stop', 'seekbackward', 'seekforward', 'seekto']
+// Track buttons stay unset: iOS shows either track or skip buttons, and listeners expect skips.
+const trackActions: MediaSessionAction[] = ['previoustrack', 'nexttrack']
 const supported = () => typeof navigator !== 'undefined' && 'mediaSession' in navigator
 
 function handlerFor(action: MediaSessionAction, controls: Controls): MediaSessionActionHandler {
   if (action === 'play') return () => controls.play()
   if (action === 'pause') return () => controls.pause()
   if (action === 'stop') return () => controls.stop()
-  if (action === 'previoustrack') return () => controls.previous()
-  if (action === 'nexttrack') return () => controls.next()
+  if (action === 'seekbackward') return () => controls.back()
+  if (action === 'seekforward') return () => controls.forward()
   return details => { if (details.seekTime !== undefined) controls.seek(details.seekTime) }
 }
 
 /**
- * Lock screen and earphone buttons control the narration only while it is in use; previous and
- * next step one sentence. Without a session the system buttons go back to the background music.
+ * Lock screen and earphone buttons control the narration while it is in use. The skip buttons move
+ * ten seconds, which matches the "10" iOS draws on them whatever the interval.
  */
 export function setMediaControls(controls: Controls | null) {
   if (!supported()) return
   for (const action of actions) {
     try { navigator.mediaSession.setActionHandler(action, controls ? handlerFor(action, controls) : null) } catch { /* The system keeps its default for this button. */ }
+  }
+  for (const action of trackActions) {
+    try { navigator.mediaSession.setActionHandler(action, null) } catch { /* Not every browser knows every action. */ }
   }
   if (!controls) {
     navigator.mediaSession.metadata = null
@@ -34,7 +39,7 @@ export function describeEpisode(id: string) {
   if (!supported() || typeof MediaMetadata === 'undefined') return
   const episode = catalog.readingOrder.find(candidate => candidate.id === id)
   if (!episode) return
-  const image = catalog.illustrations[id]?.find(candidate => candidate.position.start)
+  const image = startIllustration(id)
   navigator.mediaSession.metadata = new MediaMetadata({
     title: `${episode.label} ${episode.title}`,
     artist: catalog.work.subtitle,

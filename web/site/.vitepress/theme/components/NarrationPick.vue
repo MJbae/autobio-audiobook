@@ -6,9 +6,10 @@ import { cueElements } from '../lib/narration-page'
 import Icon from './Icon.vue'
 
 const narration = inject(narrationKey)!
-const { state, track } = narration
+const { state, pageTrack } = narration
 const position = ref<{ top: number; left: number } | null>(null)
-const time = computed(() => track.value?.cues[state.pick]?.[0] ?? 0)
+// The offer reads this page's recording, also while another episode is the one playing.
+const time = computed(() => pageTrack.value?.cues[state.pick]?.[0] ?? 0)
 
 // The offer sits above the first line of the tapped sentence and scrolls with the text.
 watch(() => state.pick, async index => {
