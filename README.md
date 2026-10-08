@@ -126,7 +126,7 @@ python3 -I tools/review_list.py     # 받아쓰기 검수에 걸린 줄과 영�
 - **회차 추가:** 오디오북을 만든 뒤 `cd web && npm run narration:sync -- ep04 ep05`를 실행한다. `../out/`의 MP3와 SRT를 옮기면서, 문단 안 문장의 시작 시각을 실제 낭독의 쉼에 맞춘다(오디오북 SRT는 문단 안 문장 시각을 글자 수로 나눠 최대 1.7초 어긋난다). 원고에서 찾지 못한 문장이 있으면 옮기지 않는다.
 - **테스트:** `npm test`(단위), `npx playwright test`(화면).
 - **화면 동작:** 회차 첫 화면의 '소리로 듣기'나 툴바의 '듣기'로 시작한다. 읽는 문장을 표시하며 화면이 따라가고, 회차 끝 음악이 흐르는 동안 다음 화를 안내한 뒤 이어서 들려 준다. 자세한 내용은 `web/README.md`에 있다.
-- **배포:** `web/`이나 배포 설정을 고쳐 main에 올리면 GitHub Actions(`.github/workflows/deploy.yml`)가 빌드·테스트한 뒤 https://mjbae.github.io/autobio-audiobook/ 에 배포한다. 무료 요금제는 비공개 저장소에서 Pages를 쓸 수 없어 저장소를 공개로 바꿨다(2026-10-08). 반응 버튼은 Firebase 저장소 변수가 없어서 숨겨져 있다.
+- **배포:** `web/`이나 배포 설정을 고쳐 main에 올리면 GitHub Actions(`.github/workflows/deploy.yml`)가 빌드·테스트한 뒤 https://mjbae.github.io/autobio-audiobook/ 에 배포한다. 무료 요금제는 비공개 저장소에서 Pages를 쓸 수 없어 저장소를 공개로 바꿨다(2026-10-08). 반응 버튼은 bae-memoir와 같은 Firebase를 쓰므로 반응 수가 본 사이트와 합쳐진다(사용자 결정, 2026-10-08). 이를 위해 저장소 변수 `VITE_FIREBASE_*` 4개를 bae-memoir에서 복사해 두었다.
 
 ## 주의할 점
 
