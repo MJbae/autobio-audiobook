@@ -7,7 +7,7 @@ import { legacyEpisodes } from '../site/.vitepress/shared/episode-ids.mjs'
 const dist = new URL('../site/.vitepress/dist/', import.meta.url)
 // The build under test decides the address: CI builds with the repository's Pages path in SITE_BASE.
 const base = process.env.SITE_BASE || '/bae-memoir/'
-const siteUrl = new URL(base, 'https://mjbae.github.io').href
+const siteUrl = new URL(base, process.env.SITE_ORIGIN || 'https://mjbae.github.io').href
 const title = catalog.work.title
 const description = '배병희 자전소설 · 갯벌에서 들녘까지, 가족과 이웃을 위해 살아온 한평생.'
 const imagePath = 'images/bae-byunghee-hero-watercolor.png'
@@ -81,6 +81,7 @@ test('home sharing uses the short life description while the visible synopsis st
   assert.equal(head.title, title)
   assert.equal(head.meta('description'), description)
   assert.equal(head.meta('og:title'), title)
+  assert.equal(head.meta('og:site_name'), base === '/audiobooks/' ? 'ToldLife Audiobooks' : title)
   assert.equal(head.meta('og:description'), description)
   assert.equal(head.meta('twitter:title'), title)
   assert.equal(head.meta('twitter:description'), description)
