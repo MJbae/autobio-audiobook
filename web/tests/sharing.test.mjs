@@ -5,7 +5,9 @@ import catalog from '../site/.vitepress/generated/catalog.json' with { type: 'js
 import { legacyEpisodes } from '../site/.vitepress/shared/episode-ids.mjs'
 
 const dist = new URL('../site/.vitepress/dist/', import.meta.url)
-const siteUrl = 'https://mjbae.github.io/bae-memoir/'
+// The build under test decides the address: CI builds with the repository's Pages path in SITE_BASE.
+const base = process.env.SITE_BASE || '/bae-memoir/'
+const siteUrl = new URL(base, 'https://mjbae.github.io').href
 const title = catalog.work.title
 const description = '배병희 자전소설 · 갯벌에서 들녘까지, 가족과 이웃을 위해 살아온 한평생.'
 const imagePath = 'images/bae-byunghee-hero-watercolor.png'
@@ -113,12 +115,12 @@ test('each episode link uses its current manuscript title and stable canonical U
 test('home and episode pages expose browser and mobile icons from the deployed base path', async () => {
   for (const page of ['index.html', `read/${chapterTitles[0].episodeId}.html`]) {
     const head = await staticHead(page)
-    assert.equal(head.link('icon', '/bae-memoir/favicon.svg').type, 'image/svg+xml')
-    const favicon = head.link('icon', '/bae-memoir/favicon-32.png')
+    assert.equal(head.link('icon', `${base}favicon.svg`).type, 'image/svg+xml')
+    const favicon = head.link('icon', `${base}favicon-32.png`)
     assert.equal(favicon.type, 'image/png')
     assert.equal(favicon.sizes, '32x32')
-    head.link('apple-touch-icon', '/bae-memoir/apple-touch-icon.png')
-    head.link('manifest', '/bae-memoir/site.webmanifest')
+    head.link('apple-touch-icon', `${base}apple-touch-icon.png`)
+    head.link('manifest', `${base}site.webmanifest`)
   }
 })
 
@@ -161,7 +163,7 @@ test('all legacy decade and heading addresses statically redirect to their numbe
     const head = await staticHead(`read/${old}.html`)
     assert.equal(head.link('canonical').href, `${siteUrl}read/${id}.html`)
     const html = await readFile(new URL(`read/${old}.html`, dist), 'utf8')
-    assert.ok(html.includes(`http-equiv="refresh" content="0;url=/bae-memoir/read/${id}.html"`))
+    assert.ok(html.includes(`http-equiv="refresh" content="0;url=${base}read/${id}.html"`))
     assert.ok(html.includes('location.hash'))
   }
 })
@@ -170,7 +172,7 @@ test('the retired full-story address statically redirects to the work home', asy
   const head = await staticHead('read/life-story.html')
   assert.equal(head.link('canonical').href, siteUrl)
   const html = await readFile(new URL('read/life-story.html', dist), 'utf8')
-  assert.match(html, /http-equiv="refresh" content="0;url=\/bae-memoir\/"/)
+  assert.ok(html.includes(`http-equiv="refresh" content="0;url=${base}"`))
   assert.ok(!html.includes('episode-illustration'))
   assert.ok(!html.includes('한 번에 읽기'))
 })

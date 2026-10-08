@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://mjbae.github.io/bae-memoir/"><b>읽으러 가기 →</b></a>
+  <a href="https://mjbae.github.io/autobio-audiobook/"><b>읽으며 듣기 →</b></a>
 </p>
 
 <p align="center">
