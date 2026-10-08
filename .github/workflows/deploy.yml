@@ -1,10 +1,13 @@
 name: Pages
 
+# Changes to the audiobook tools or notes alone do not rebuild the site.
 on:
   push:
     branches: [main]
+    paths: ['web/**', '.github/workflows/deploy.yml']
   pull_request:
     branches: [main]
+    paths: ['web/**', '.github/workflows/deploy.yml']
   workflow_dispatch:
 
 permissions:
